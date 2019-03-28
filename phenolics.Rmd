@@ -1,0 +1,565 @@
+
+
+```{r, include=FALSE}
+
+require(shiny)
+require(plotly)
+require(rdrop2)
+require(dplyr)
+require(tools)
+require(DBI)
+require(DT)
+require(shinyjs)
+require(e1071)
+require(httr)
+require(ggplot2)
+require(reshape2)
+
+
+pred <- function(y)
+{
+  master <- read.csv('data/winewashed.csv', header = T, check.name = F)
+  master.spec <- master[,-1:-3]
+  m3g.standard <- read.csv("data/m3g standard.csv", header = T, check.name = F)
+  tip.standard <- read.csv("data/Qu + CA standard.csv", header = T, check.name = F)
+
+  m3g <- data.frame(master$M3Gs, master.spec[,201:471])
+  colnames(m3g) <- c('M3Gs', c(430:700))
+  
+  m3g.prime <- master.spec$'520'/m3g.standard$'520'
+  m3g.standard <- as.matrix(m3g.standard)
+  m3g.prime <- as.matrix(m3g.prime)
+  m3g.spec <- data.frame(m3g.prime%*%m3g.standard[,1:290], master.spec[,291:471])
+  colnames(m3g.spec) <- c(c(230:700))
+  
+  tip.spec <- master.spec[,1:200] - m3g.spec[,2:201]
+  tip <- data.frame(master$TIPs, tip.spec)
+  colnames(tip) <- c("TIPs", c(230:429))
+
+  pc <- data.frame(master$PCs, tip.spec)
+  colnames(pc) <- c("PCs", c(230:429))
+  
+  pc.svm <- svm(PCs~., data = pc, cost = 0.004, kernel = "linear", type = "nu-regression")
+  tip.svm <- svm(TIPs~., data = tip, cost = 0.004, kernel = "linear", type = "nu-regression")
+  m3g.svm <- svm(M3Gs~., data = m3g, cost = 0.004, kernel = "linear", type = "nu-regression")
+  
+  predict.pc <- predict(pc.svm, y)
+  predict.tip <- predict(tip.svm, y)
+  predict.m3g <- predict(m3g.svm, y)
+  
+  sum.test <- data.frame(format(round(predict.m3g, 1), nsmall = 1), 
+                         format(round(predict.pc, 1), nsmall = 1), format(round(predict.tip, 1), nsmall = 1))
+  colnames(sum.test) <- c('Anthocyanins (mg/L Malv EQ)', 'Tannins (mg/L CE)', 'Total Iron Reactive phenolics (mg/L CE)')
+  
+  sum.test
+}
+
+vintage <- c(2000:2017)
+
+tank <- c(1:100)
+
+wineries <- c("WSUWSC", "Beringer")
+
+country <- c("Washington", "Oregon", "California", "New York", "Texas", "Argentina", "Chile", "France", "Italy", "Spain", "Germany", "South Africa", "Australia",
+           "New Zealand")
+
+regionMaster <- c("Ancient Lakes", "Columbia Gorge", "Columbia Valley", "Horse Heaven Hills", "Lake Chelan", "Naches Heights", "Puget Sound", 
+                  "Rattlesnake Hills", "Red Mountain", "Snipes Mountain", "Wahluke Slope", "Walla Walla Valley", "Yakima Valley", "Applegate Valley", 
+                  "Chehalem Mountains", "Columbia Gorge","Columbia Valley","Dundee Hills", "Elkton, Oregon",
+                  "Eola-Amity Hills", "Hood River County", "McMinnville", "Polk County", "Red Hill Douglas County", "Ribbon Ridge", 
+                  "Rogue Valley", "Southern Oregon", "The Rocks District of Milton–Freewater", "Umpqua Valley", "Walla Walla Valley",
+                  "Washington County", "Willamette Valley", "Yamhill County", "Yamhill-Carlton District", "Alexander Valley", "Alta Mesa", 
+                  "Anderson Valley", "Antelope Valley of the California High Desert", "Arroyo Grande Valley", 
+                  "Arroyo Seco", "Atlas Peak", "Ballard Canyon","Ben Lomond Mountain", "Benmore Valley", "Bennett Valley", "Big Valley Lake County",
+                  "Borden Ranch", "California Shenandoah Valley", "Calistoga", "Capay Valley", "Carmel Valley", "Central Coast", "Chalk Hill", 
+                  "Chalone", "Chiles Valley", "Cienega Valley", "Clarksburg", "Clear Lake", "Clements Hills", "Cole Ranch", "Coombsville", "Cosumnes River", 
+                  "Covelo", "Cucamonga Valley", "Diablo Grande", "Diamond Mountain District", "Dos Rios", "Dry Creek Valley", "Dunnigan Hills", "Edna Valley", 
+                  "El Dorado", "Fair Play", "Fiddletown", "Fort Ross-Seaview", "Fountaingrove District", "Green Valley of Russian River Valley", 
+                  "Guenoc Valley", "Hames Valley", "Happy Canyon of Santa Barbara", "High Valley", "Howell Mountain", "Jahant", 
+                  "Kelsey Bench-Lake County","Knights Valley", "Leona Valley", "Lime Kiln Valley", "Livermore Valley", "Lodi", "Los Carneros", 
+                  "Madera", "Malibu Coast", "Malibu-Newton Canyon", "Manton Valley", "McDowell Valley", "Mendocino", "Mendocino Ridge", "Merritt Island", 
+                  "Mokelumne River", "Monterey", "Moon Mountain District Sonoma County","Mt. Harlan", "Mt. Veeder", "Napa Valley", "North Coast", "Northern Sonoma",
+                  "North Yuba", "Oak Knoll District of Napa Valley", "Oakville", "Pacheco Pass", "Paicines", "Paso Robles", "Pine Mountain-Cloverdale", 
+                  "Potter Valley", "Ramona Valley", "Red Hills Lake County", "Redwood Valley", "River Junction", "Rockpile", "Russian River Valley", 
+                  "Rutherford", "Saddle Rock-Malibu", "Salado Creek", "San Antonio Valley", "San Benito", "San Bernabe", "San Francisco Bay", 
+                  "San Lucas", "San Pasqual Valley", "Santa Clara Valley", "Santa Cruz Mountains", "Santa Lucia Highlands", 
+                  "Santa Maria Valley", "Santa Ynez Valley", "San Ysidro District", "Seiad Valley", "Sierra Foothills", "Sierra Pelona Valley", 
+                  "Sloughhouse", "Solano County Green Valley", "Sonoma Coast", "Sonoma Mountain", "Sonoma Valley","South Coast",
+                  "Spring Mountain District", "St. Helena", "Sta. Rita Hills", "Stags Leap District", "Suisun Valley", "Temecula Valley", 
+                  "Tracy Hills", "Trinity Lakes", "Wild Horse Valley", "Willow Creek", "York Mountain", "Yorkville Highlands", "Cayuga Lake", 
+                  "Finger Lakes", "Hudson River Region", "Long Island", "Niagara Escarpment", "North Fork of Long Island", "Seneca Lake", 
+                  "The Hamptons, Long Island", "Bell Mountain", "Escondido Valley", "Fredericksburg in the Texas Hill", "Texas Davis Mountains", 
+                  "Texas High Plains", "Texas Hill Country", "Texoma", "Cafayate-Calchaqui Valley", "Catamarca", "Cuyo", "Famatina", "Fiambala", 
+                  "Jujuy", "La Rioja", "Mendoza","Patagonia", "Salta", "San Juan", "Elqui Valley", "Limari Valley", "Choapa Valley", "Aconcagua Valley",
+                  "Central Valley", "Leyda Valley", "Rapel Valley", "Acacama","Casablanca Valley", "San Antonio Valley", "Maipo Valley", "Cachapoal Valley", 
+                  "Colchagua Valley", "Curico Valley", "Maule Valley","Itata Valley", "Bio Bio Valley", "Malleco Valley", "Alsace", "Armagnac",  "Bordeaux", 
+                  "Burgundy", "Calvado", "Champagne", "Cognac",  "Corsica","Jura", "Languedoc-Roussillon", "loire", "Moselle", "Provence", "Rhone", 
+                  "Savoie", "South West France","Vin De Pays", "Vin de Table", "Abruzzo", "Aosta Valley", "Basillicata", "Calabia", "Campania", "Emilia-Romagna", 
+                  "Friuli-Venezia, Giulla", "Lazio", "Liguria", "Lombardy", "Marche", "Molise", "Piedmont", "Puglia", "San Marino","Sardinia", 
+                  "Sicily", "Trentino-Alto Abige", "Tuscany", "Umbria","Veneto", "Vino da Tavola", "Andalucia", "Aragon", "Asturias", "Balcearic Islands", 
+                  "Canary Islands","Cantanbria", "Castilla La Mancha", "Castilla y Leon", "Catalonia","Extemadura", "Galicia", "Madrid", "Murcia", "Ahr", "Baden", 
+                  "Franken", "Hessische Bergstrasse", "Mosel", "Nahe", "Pfalz","Rheingau", "Rheinhessen", "Saale-Unstrut", "Sachsen", "Wurttemberg",
+                  "Navarra", "Pais Vasco","Rioja", "Valencia", "Vinos de Pago", "Breede River Valley", "Cape Agulhas", "Coastal Region", "Elgin", 
+                  "Klein Karoo","Olifants River Valley", "Orange River", "Overberg", "Walker Bay", "Western Cape", "New South Wales", "Northern Territory", 
+                  "Queensland", "South Australia","South Eastern Australia", "Tasmania", "Victoria", "Western Australia", "Auckland", "Canterbury", 
+                  "Central Otago", "Gisborne", "Hawkes Bay", "Marlborough", "Martinborough", "Nelson", "Northland", "Waiheke Island", "Waipara", "Wairarapa", 
+                  "Waitaki Valley") 
+
+cultivarMaster <- c(" ","Alicante", "Aglianico", "Aragon", "Barbera", "Bobal", "Blauer Lemberger", "Bonarda", "Cabernet Franc", "Cabernet Sauvignon", "Carignan", "Cariñena", 
+                    "Carménère", "Cencibel", "Cinsaut", "Concord", "Cynthiana", "Dolcetto", "Domina", "Dornfelder", "Gamay", "Garnacha", "Grenache",  
+                    "Juan García", "Lemberger", "Lenoir", "Listán Negro", "Manto Negro", "Mazuelo", "Mencía", "Malbec", "Mencía", "Merlot", "Monastrell", "Montepulciano",  
+                    "Mourvedre", "Nebbiolo", "Nero d’Avola", "Petit Verdot", "Petit Sirah", "Pinot Noir", "Pinotage", "Portugieser","Primitivo & Negroamaro", "Ruby Cabernet", 
+                    "Sangiovese", "Schwarzriesling", "Spätburgunder", "Syrah", "Tannat", "Tempranillo", "Tinto de Toro",  
+                    "Trollinger",  "Trepat", "Valpolicella Blend", "Zinfandel")
+
+
+calInstrument <- c("Olis 17", "Agilent 8453", "Thermo Fisher Genesys 10S")
+calDilution <- c("15 fold", "10 fold", "5 fold")
+CalTable <- data.frame(calInstrument, calDilution, row.names = NULL)
+colnames(CalTable) <- c("Instrument ID", "Recommended Sample Dilution")
+
+
+WSUWSC <- list(WSUWSC.country = 'Washington', WSUWSC.region = 'Yakima Valley', 
+              WSUWSC.cult = c(" ", "Barbera", "Cabernet Sauvignon", "Cabernet Franc", "Dolcetto", "Gamay", "Grenache", "Lemberger", "Merlot", "Malbec", 
+                              "Mourvedre", "Nebbiolo", "Petit Sirah", "Petit Verdot", "Pinot Noir", "Sangiovese", "Syrah/Shiraz",
+                              "Zinfandel"), 
+              WSUWSC.tank = c(" ", 1:100), 
+              WSUWSC.barrel = c(" ", 1:200))
+
+```
+
+```{r, echo=FALSE}
+
+shinyApp(
+
+shinyUI(fluidPage(theme = "bootstrap.css",
+                  title = "Phenolics Gateway WSUWSC",
+                  navbarPage(position = 'static-top', img(src = "WSU-VE.png", height = "100px", width = "280px", style = " margin-left: 25px; 
+                             margin-right: 160px; margin-top: -5px;"), 
+                             tabPanel(h3("Predict Phenolics"),
+                                      tabsetPanel(
+                                        tabPanel(h4('Make a new Prediciton'),
+                                                 sidebarLayout(
+                                                   sidebarPanel(style = "background-color: #262b2e; color: #ffffff",
+                                                                selectizeInput('cult', 'Select a Cultivar or Blend',
+                                                                               choices = c(cultivarMaster, options = list(
+                                                                                 placeholder = ' ',
+                                                                                 onInitialize = I('function() { this.setValue(""); }')
+                                                                               )
+                                                                )),
+                                                                  selectizeInput('tank', 'Select a Tank',
+                                                                                 choices = tank,  options = list(
+                                                                                   placeholder = ' ',
+                                                                                   onInitialize = I('function() { this.setValue(""); }')
+                                                                                 )
+                                                                  ),
+                                                                tags$head(tags$style(".progress-bar{background-color:#660000;}")),
+                                                                tags$head(tags$style(".btn{background-color:#660000;}")),
+                                                                tags$head(tags$style(".btn:hover{background-color:#34000d;}")),
+                                                                  fileInput("newfile", "Upload spectra",
+                                                                            accept = c(
+                                                                              "text/csv",
+                                                                              "text/comma-separated-values",
+                                                                              "text/tab-separated-values",
+                                                                              "text/plain",
+                                                                              ".xlsx",
+                                                                              ".csv",
+                                                                              ".tsv")
+                                                                  ),
+                                                                tags$head(
+                                                                  tags$style(".predictNew{background-color:#660000;}
+                                                                             .predictNew{color: white;}
+                                                                             .predictNew{border: none;}
+                                                                             .predictNew:hover{background-color: #34000d;}")
+                                                                )),
+                                                   mainPanel(
+                                                     tabPanel(' ', DT::dataTableOutput('table'))
+                                                   )
+                                                 )),
+                                        tabPanel(h4('Fermentation History'),
+                                                 sidebarLayout(
+                                                   sidebarPanel(style = "background-color: #262b2e; color: #ffffff",
+                                                                selectizeInput('vintage', 'Select a vintage',
+                                                                               choices = vintage, options = list(
+                                                                                 placeholder = ' ',
+                                                                                 onInitialize = I('function() { this.setValue(""); }')
+                                                                               )
+                                                                ),
+                                                                downloadButton('download', 'Save vintage history', class = 'mybutton'),
+                                                                tags$head(
+                                                                  tags$style(".mybutton{background-color:#660000;}
+                                                                             .mybutton{color: white;}
+                                                                             .mybutton{border: none;}
+                                                                             .mybutton:hover{background-color: #34000d;}")
+                                                                )),
+                                                   mainPanel(
+                                                     tabPanel(' ', DT::dataTableOutput('table1'))
+                                                   )))
+                                        )
+                                      ),
+                             tabPanel(h3("Compare Phenolics"),
+                                      tabsetPanel(
+                                        tabPanel(h4('Region/AVA Comparison'),
+                                                 sidebarLayout(
+                                                   sidebarPanel(style = "background-color: #262b2e; color: #ffffff",
+                                                                selectizeInput('country1', 'Select a state or country',
+                                                                               choices = country, options = list(
+                                                                                 placeholder = ' ',
+                                                                                 onInitialize = I('function() { this.setValue(""); }')
+                                                                               )
+                                                                ),
+                                                                selectizeInput('region1', 'Select a AVA or region',
+                                                                               choices = regionMaster, options = list(
+                                                                                 placeholder = ' ',
+                                                                                 onInitialize = I('function() { this.setValue(""); }')
+                                                                               )
+                                                                ),
+                                                                selectizeInput("cult1", "Select cultivar or blend",
+                                                                               choices = cultivarMaster, options = list(
+                                                                                 placeholder = ' ',
+                                                                                 onInitialize = I('function() { this.setValue(""); }')
+                                                                               )
+                                                                ),
+                                                                selectizeInput("vintage1", "Select Vintage",
+                                                                               choices = vintage,  options = list(
+                                                                                 placeholder = ' ',
+                                                                                 onInitialize = I('function() { this.setValue(""); }')
+                                                                               )
+                                                                ),
+                                                                tags$head(
+                                                                  tags$style(".compareRegion{background-color:#660000;}
+                                                                             .compareRegion{color: white;}
+                                                                             .compareRegion{border: none;}
+                                                                             .compareRegion:hover{background-color: #34000d;}")
+                                                                  )                                                                ),
+                                                   mainPanel(
+                                                     tabPanel(" ", plotlyOutput("plot1"))
+                                                   )
+                                                   )
+                                        ),
+                                        tabPanel(h4('State/Country Comparison'),
+                                                 sidebarLayout(
+                                                   sidebarPanel(style = "background-color: #262b2e; color: #ffffff",
+                                                                selectizeInput('country2', 'Select a state or country',
+                                                                               choices = country, options = list(
+                                                                                 placeholder = ' ',
+                                                                                 onInitialize = I('function() { this.setValue(""); }')
+                                                                               )
+                                                                ),
+                                                                selectizeInput("cult2", "Select cultivar or blend",
+                                                                               choices = cultivarMaster, options = list(
+                                                                                 placeholder = ' ',
+                                                                                 onInitialize = I('function() { this.setValue(""); }')
+                                                                               )
+                                                                ),
+                                                                selectizeInput("vintage2", "Select Vintage",
+                                                                               choices = vintage,  options = list(
+                                                                                 placeholder = ' ',
+                                                                                 onInitialize = I('function() { this.setValue(""); }')
+                                                                               )
+                                                                ),
+                                                                tags$head(
+                                                                  tags$style(".compareCountry{background-color:#660000;}
+                                                                             .compareCountry{color: white;}
+                                                                             .compareCountry{border: none;}
+                                                                             .compareCountry:hover{background-color: #34000d;}")
+                                                                  )                                                                ),
+                                                   mainPanel(
+                                                     tabPanel(' ', plotlyOutput(('plot2')))
+                                                   )
+                                                   )
+                                        ),
+                                        tabPanel(h4('Global Comparison'),
+                                                 sidebarLayout(
+                                                   sidebarPanel(style = "background-color: #262b2e; color: #ffffff",
+                                                                selectizeInput('cult3', 'Select cultivar or blend',
+                                                                               choices =  cultivarMaster, options = list(
+                                                                                 placeholder = ' ',
+                                                                                 onInitialize = I('function() { this.setValue(""); }')
+                                                                               )
+                                                                ),
+                                                                selectizeInput('vintage3', 'Select Vintage',
+                                                                               choices = vintage,  options = list(
+                                                                                 placeholder = ' ',
+                                                                                 onInitialize = I('function() { this.setValue(""); }')
+                                                                               )
+                                                                ),
+                                                                tags$head(
+                                                                  tags$style(".compareWorld{background-color:#660000;}
+                                                                             .compareWorld{color: white;}
+                                                                             .compareWorld{border: none;}
+                                                                             .compareWorld:hover{background-color: #34000d;}")
+                                                                )                                                   ),
+                                                   mainPanel(
+                                                     tabPanel(' ', plotlyOutput(('plot3')))
+                                                   )
+                                                 )
+                                        )
+                                      )
+                             ),
+                             tabPanel(h3("Sample Dilution"),
+                                      tabsetPanel(
+                                        tabPanel(h4('Recommended Sample Dilution'),
+                                                 mainPanel(
+                                                   tabPanel(' ', DT::dataTableOutput('calTable'))
+                                                 )
+                                        )
+                                      )
+                             )
+                  )
+)),
+
+shinyServer(function(input, output, session) {
+  
+  token <- readRDS('droptoken.rds')
+  drop_auth()
+  
+  year <- format(Sys.time(), "%Y")
+  Sys.setenv(TZ='UTC-5')
+  
+  users_data <- data.frame(START = Sys.time())
+  
+  session$onSessionEnded(function() {
+    users_data$END <- Sys.time()
+    write.table(x = users_data, file = file.path(getwd(), "users_data.txt"),
+                append = TRUE, row.names = FALSE, col.names = FALSE, sep = "\t")
+  })
+  
+  drop_upload('users_data.txt', path=("Users/"))
+    
+    output$calTable <- DT::renderDataTable(datatable(
+      CalTable, rownames = F
+      ))
+  
+  newTable <- reactive({
+    
+    input$refresh
+    invalidateLater(1000 * 60 * 5, session)
+    
+    startTime <- format(Sys.time(), '%b-%d, %I:%M')
+    
+    temp <- tempdir()
+    
+    if (is.null(input$newfile)) {
+      return(NULL)}
+  
+  newData <-read.csv(input$newfile$datapath, header = T, check.names = F)
+  
+  newData.df <- data.frame(input$cult,  input$tank, year, startTime, pred(newData))
+  rownames(newData.df) <- NULL
+  colnames(newData.df) <- c("Cultivar",  "Tank Number", "Vintage", "Prediction Date", "Anthocyanins (mg/L Malv EQ)", 
+                            "Tannins (mg/L CE)", "Total Iron Reactive Phenolics (mg/L CE)")
+  
+  if (drop_exists(paste0("Fermentation logs", '/', year, '/',  'WSUWSC', '.csv') == TRUE)) {
+    oldData <- drop_read_csv(paste0("Fermentation logs", '/', year, '/', 'WSUWSC', '.csv'), check.names = F)
+    names(newData.df) <- names(oldData)
+    merged <- rbind(oldData, newData.df)
+    write.csv(merged, file = paste0(temp, '/', 'WSUWSC', '.csv'), row.names = FALSE, , check.names = F)
+    drop_upload(paste0(temp, '/', 'WSUWSC', '.csv'),
+                dest = paste0("Fermentation logs", '/', year, '/'), overwrite = TRUE)
+  } else {
+    write.csv(newData.df, file = paste0(temp, '/', 'WSUWSC', '.csv'), row.names = FALSE)
+    drop_upload(paste0(temp, '/', 'WSUWSC', '.csv'), dest = paste0("Fermentation logs", '/', year, '/'))
+  }
+  
+  if (drop_exists(paste0('Comparisons', "/", year, '/', "Washington", " ", "Yakima Valley", " ", input$cult, '.csv') == TRUE)) {
+    oldStack <- drop_read_csv(paste0('Comparisons', "/", year, '/', "Washington", " ", "Yakima Valley", " ", input$cult, '.csv'))
+    newStack <- drop_read_csv(paste0("Fermentation logs", '/', year, '/', "WSUWSC", '.csv'), check.names = F)
+    newStack <- newStack[newStack$Cultivar == input$cult, ]
+    newStack.df <- stack(newStack[,5:7])
+    mergedStack <- rbind(oldStack, newStack.df)
+    mergedStack.order <- mergedStack[order(mergedStack$ind), ]
+    write.csv(mergedStack.order, file = paste0(temp, '/', "Washington", " ", "Yakima Valley", " ", input$cult, '.csv'), 
+              row.names = FALSE)
+    drop_upload(paste0(temp, '/', "Washington", " ", "Yakima Valley", " ", input$cult, '.csv'), 
+                dest =  paste0("Comparisons", '/', year, '/'), overwrite = TRUE)
+  } else {
+    newStack <- drop_read_csv(paste0("Fermentation logs", '/', year, '/', "WSUWSC", '.csv'), check.names = F)   
+    newStack <- newStack[newStack$Cultivar == input$cult, ]
+    newStack.df <- stack(newStack[,5:7])
+    write.csv(newStack.df, file = paste0(temp, '/', "Washington", " ", "Yakima Valley", " ", input$cult, '.csv'), 
+              row.names = FALSE)
+    drop_upload(paste0(temp, '/', "Washington", " ", "Yakima Valley", " ", input$cult, '.csv'), 
+                dest =  paste0("Comparisons", '/', year, '/'))
+  }
+  
+  if (drop_exists(paste0('Comparisons', "/", year, '/', "Washington", " ", input$cult, '.csv') == TRUE)) {
+    oldStack <- drop_read_csv(paste0('Comparisons', "/", year, '/', "Washington", " ", input$cult, '.csv'))
+    newStack <- drop_read_csv(paste0("Fermentation logs", '/', year, '/', "WSUWSC", '.csv'), check.names = F)
+    newStack <- newStack[newStack$Cultivar == input$cult, ]
+    newStack.df <- stack(newStack[,5:7])
+    mergedStack <- rbind(oldStack, newStack.df)
+    mergedStack.order <- mergedStack[order(mergedStack$ind), ]
+    write.csv(mergedStack.order, file = paste0(temp, '/', "Washington", " ", input$cult, '.csv'), 
+              row.names = FALSE)
+    drop_upload(paste0(temp, '/', "Washington", " ", input$cult, '.csv'), 
+                dest =  paste0("Comparisons", '/', year, '/'), overwrite = TRUE)
+  } else {
+    newStack <- drop_read_csv(paste0("Fermentation logs", '/', year, '/', "WSUWSC", '.csv'), check.names = F)
+    newStack <- newStack[newStack$Cultivar == input$cult, ]
+    newStack.df <- stack(newStack[,5:7])
+    write.csv(newStack.df, file = paste0(temp, '/', "Washington", " ", input$cult, '.csv'), 
+              row.names = FALSE)
+    drop_upload(paste0(temp, '/', "Washington", " ",input$cult, '.csv'), 
+                dest =  paste0("Comparisons", '/', year, '/'))
+  }
+  
+  if (drop_exists(paste0('Comparisons', "/", year, '/', input$cult, '.csv') == TRUE)) {
+    oldStack <- drop_read_csv(paste0('Comparisons', "/", year, '/', input$cult, '.csv'))
+    newStack <- drop_read_csv(paste0("Fermentation logs", '/', year, '/', "WSUWSC", '.csv'), check.names = F)
+    newStack <- newStack[newStack$Cultivar == input$cult, ]
+    newStack.df <- stack(newStack[,5:7])
+    mergedStack <- rbind(oldStack, newStack.df)
+    mergedStack.order <- mergedStack[order(mergedStack$ind), ]
+    write.csv(mergedStack.order, file = paste0(temp, '/', input$cult, '.csv'), 
+              row.names = FALSE)
+    drop_upload(paste0(temp, '/', input$cult, '.csv'), 
+                dest =  paste0("Comparisons", '/', year, '/'), overwrite = TRUE)
+  } else {
+    newStack <- drop_read_csv(paste0("Fermentation logs", '/', year, '/', "WSUWSC", '.csv'), check.names = F)
+    newStack <- newStack[newStack$Cultivar == input$cult, ]
+    newStack.df <- stack(newStack[,5:7])
+    write.csv(newStack.df, file = paste0(temp, '/', input$cult, '.csv'), 
+              row.names = FALSE)
+    drop_upload(paste0(temp, '/', input$cult, '.csv'), 
+                dest =  paste0("Comparisons", '/', year, '/'))
+  }
+  
+  pred(newData)
+  })
+  
+  output$table <- DT::renderDataTable({
+    
+    validate(
+      need(input$cult != "", "Please Select a Cultivar or Blend"),
+      need(input$tank != "", "Please Select a Tank")
+    )
+    datatable(newTable(), rownames = T)
+  })
+  
+  historyTable <- reactive({
+    
+    input$refresh
+    invalidateLater(1000 * 60 * 5, session)
+    
+    history <- drop_read_csv(paste0('Fermentation logs', '/', input$vintage, "/", "WSUWSC", '.csv'))
+    dataHistory <- data.frame(history)
+    dataHistory1 <- dataHistory[,1:4]
+    dataHistory2 <- dataHistory[,5:7]
+    dataHistory3 <- data.frame(format(dataHistory2, nsmall = 1))
+    dataHistoryFinal <- cbind(dataHistory1, dataHistory3)
+    colnames(dataHistoryFinal) <- c("Cultivar",  "Tank Number", "Vintage", "Prediction Date", "Anthocyanins (mg/L Malv EQ)", "Tannins (mg/L CE)", "Total Iron Reactive Phenolics (mg/L CE)")
+    
+    dataHistoryFinal
+  })
+  
+  output$table1 <- renderDataTable({
+    validate(
+      need(input$vintage != '', 'Please Select a Vintage')
+    )
+    datatable(historyTable(), rownames = F)
+  })
+  
+  output$download <- downloadHandler(
+      filename = function() { paste0("WSUWSC", " ", "phenolics",  " ", year, " ", "tank = ", " ",input$tank1, '.csv') },
+    content = function(file) {
+      write.csv(historyTable(), file, row.names = FALSE)
+    }
+  )
+  
+  compareRegion <- reactive({
+    
+    input$refresh
+    invalidateLater(1000 * 60 * 5, session)
+    
+    ph_region <- drop_read_csv(paste0('Comparisons', '/', input$vintage1, '/', input$country1, " ", input$region1,  " ", input$cult1, '.csv'))
+    
+    ph_region.dens <- density(ph_region$values)
+    ph_region.conc <- ph_region.dens$x
+    ph_region.min <- min(ph_region.conc)
+    ph_region.max <- max(ph_region.conc)
+    
+    ph_region.plotMaster <- ggplot(data=ph_region, aes(x=values, fill =ind)) + geom_density(alpha=0.5, aes(y=(..count..))) + 
+      theme_linedraw() + theme(axis.line = element_line(colour = "black"), panel.grid.major = element_blank(),  legend.title=element_blank(),
+                               panel.grid.minor = element_blank())  + labs(x = "Concentration (mg/L)", y="Count") + scale_fill_manual(
+                                 values = c("firebrick4", "gold2", "dodgerblue")) + xlim(ph_region.min, ph_region.max)
+    
+    ggplotly(ph_region.plotMaster, tooltip = c(1, 2))
+    
+  })
+  
+  output$plot1 <- renderPlotly  ({
+    validate(
+      need(input$country1 != '', "Please Select a State or Country"),
+      need(input$region1 != '', "Please Select an AVA or Region"),
+      need(input$cult1 != '', "Please Select a Cultivar or Blend"),
+      need(input$vintage1 != '', "Please Select a Vintage")
+      
+    )
+    compareRegion()
+  })
+  
+  compareCountry <- reactive({
+    
+    input$refresh
+    invalidateLater(1000 * 60 * 5, session)
+    
+    ph_country <- drop_read_csv(paste0('Comparisons', '/', input$vintage2, '/', input$country2, " ", input$cult2, '.csv'))
+    
+    ph_country.dens <- density(ph_country$values)
+    ph_country.conc <- ph_country.dens$x
+    ph_country.min <- min(ph_country.conc)
+    ph_country.max <- max(ph_country.conc)
+    
+    ph_country.plotMaster <- ggplot(data=ph_country, aes(x=values, fill =ind)) + geom_density(alpha=0.5, aes(y=(..count..))) + 
+      theme_linedraw() + theme(axis.line = element_line(colour = "black"), panel.grid.major = element_blank(),  legend.title=element_blank(),
+                               panel.grid.minor = element_blank())  + labs(x = "Concentration (mg/L)", y="Count") + scale_fill_manual(
+                                 values = c("firebrick4", "gold2", "dodgerblue")) + xlim(ph_country.min, ph_country.max)
+    
+    ggplotly(ph_country.plotMaster, tooltip = c(1,2))
+    
+  })
+  
+  output$plot2 <- renderPlotly  ({
+    validate(
+      need(input$country2 != '', "Please Select a State or Country"),
+      need(input$cult2 != '', "Please Select a Cultivar or Blend"),
+      need(input$vintage2 != '', "Please Select a Vintage")
+      
+    )
+    compareCountry()
+  })
+  
+  compareWorld <- reactive({
+    
+    input$refresh
+    invalidateLater(1000 * 60 * 5, session)
+    
+    ph_world <- drop_read_csv(paste0('Comparisons', '/', input$vintage3, '/', input$cult3, '.csv'))
+    
+    ph_world.dens <- density(ph_world$values)
+    ph_world.conc <- ph_world.dens$x
+    ph_world.min <- min(ph_world.conc)
+    ph_world.max <- max(ph_world.conc)
+    
+    ph_world.plotMaster <- ggplot(data=ph_world, aes(x=values, fill=ind)) + geom_density(alpha=0.5, aes(y=(..count..))) + 
+      theme_linedraw() + theme(axis.line = element_line(colour = "black"), panel.grid.major = element_blank(),  legend.title=element_blank(),
+                               panel.grid.minor = element_blank())  + labs(x = "Concentration (mg/L)", y="Count") + scale_fill_manual(
+                                 values = c("firebrick4", "gold2", "dodgerblue")) + xlim(ph_world.min, ph_world.max)
+    
+    ggplotly(ph_world.plotMaster, tooltip = c(1,2))
+    
+  })
+  
+  output$plot3 <- renderPlotly  ({
+    validate(
+      need(input$cult3 != '', "Please Select a Cultivar or Blend"),
+      need(input$vintage3 != '', "Please Select a Vintage")
+      
+    )
+    compareWorld()
+  })
+  
+})
+)
+```
